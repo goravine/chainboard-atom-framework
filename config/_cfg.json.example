@@ -1,0 +1,9 @@
+{
+  "_doc": "Copy to _cfg.json (gitignored). Runtime/domain configuration goes here. App-level boot config (CORS, API title) goes in api_app/config.py via pydantic-settings.",
+
+  "example_section": {
+    "_doc": "Replace with your project's real configuration sections. Per the protocol, hardcoded URLs / hosts / buckets / secrets must NOT appear in active code — they live here.",
+    "endpoint_url": "",
+    "shared_secret": ""
+  }
+}
