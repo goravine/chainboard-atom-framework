@@ -1,5 +1,5 @@
 [project]
-name = "chainboard-atom-framework"
+name = "chainboard"
 version = "0.1.0"
 description = "Python application framework: Chain (workflows) + Board (capabilities) + Atom (leaves) with an import-time architectural scanner"
 readme = "README.md"

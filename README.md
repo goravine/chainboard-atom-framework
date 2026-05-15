@@ -1,4 +1,4 @@
-# ChainBoardAtom Framework
+# chainboard
 
 A Python application framework built on three primitives:
 
@@ -47,7 +47,7 @@ Read [PROTOCOL.md](PROTOCOL.md) once. It's the canonical contract.
 ## Quick start
 
 ```bash
-# 1. Clone
+# 1. Clone (or install via pip — see below)
 git clone https://github.com/goravine/chainboard-atom-framework.git
 cd chainboard-atom-framework
 
@@ -70,6 +70,16 @@ uvicorn api_app.main:app --reload
 #   GET http://localhost:8000/health
 #   GET http://localhost:8000/api/example/echo/hello
 ```
+
+### Install as a package (no PyPI yet — pin to a tag)
+
+```bash
+pip install git+https://github.com/goravine/chainboard-atom-framework.git@v0.1.0
+```
+
+Once your project depends on it, the `module/` framework core is importable
+under the package name `chainboard`. PyPI publish is intentionally deferred —
+see "What this framework is NOT" below.
 
 ---
 
