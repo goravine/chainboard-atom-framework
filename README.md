@@ -105,6 +105,7 @@ see "What this framework is NOT" below.
 | `tests/test_chain.py` | ChainResult smoke tests |
 | `PROTOCOL.md` | The framework contract |
 | `docs/USE_CASES.md` | Reusable patterns validated in real deployments |
+| `CHANGELOG.md` | Per-version changes (Semantic Versioning) |
 
 ---
 
