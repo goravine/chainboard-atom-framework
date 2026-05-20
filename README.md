@@ -95,6 +95,8 @@ see "What this framework is NOT" below.
 | `module/services_example.py` | Private child of the gate (replace with your domain) |
 | `module/example.py` | Seed `ExampleBoard` (replace with your boards) |
 | `module/atoms/example_io.py` | Seed atom (replace with real IO leaves) |
+| `module/atoms/datetime_tz.py` | UTC ↔ local-TZ display helpers ([use case](docs/USE_CASES.md#2-user-facing-timezone-discipline)) |
+| `module/atoms/idempotent_hook.py` | Fire-once external-side-effect wrapper ([use case](docs/USE_CASES.md#4-idempotent-external-side-effect-hooks)) |
 | `sdk/exceptions.py` | Framework exception hierarchy |
 | `api_app/main.py` | FastAPI app boot |
 | `api_app/routers/example.py` | Example router showing layer flow |
@@ -102,6 +104,7 @@ see "What this framework is NOT" below.
 | `config/_cfg.json.example` | Configuration template (copy to `_cfg.json`) |
 | `tests/test_chain.py` | ChainResult smoke tests |
 | `PROTOCOL.md` | The framework contract |
+| `docs/USE_CASES.md` | Reusable patterns validated in real deployments |
 
 ---
 
