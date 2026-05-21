@@ -127,6 +127,7 @@ see "What this framework is NOT" below.
 | `docs/USE_CASES.md` §7 | Single-writer file pipe — staged import, never `os.replace` under a live handle |
 | `docs/USE_CASES.md` §8 | Bug class → scanner rule discipline + the naive-datetime rule |
 | `docs/USE_CASES.md` §9 | Runtime preflight — the scanner's environment-readiness sibling |
+| `docs/USE_CASES.md` §10 | Adding a feature — the atom→builder→board→route layer walk |
 | `sdk/exceptions.py` | Framework exception hierarchy |
 | `api_app/main.py` | FastAPI app boot |
 | `api_app/routers/example.py` | Example router showing layer flow |

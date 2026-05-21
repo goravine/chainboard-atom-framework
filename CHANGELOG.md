@@ -5,6 +5,40 @@ All notable changes to this framework are recorded here. Versions follow
 breaks contract, MINOR adds doctrine or atoms, PATCH fixes scanner /
 example code.
 
+## [0.4.0] — 2026-05-21
+
+Doctrine release. No code/API changes to the framework core; one new
+USE_CASES pattern distilled from extending the same production deployment (the
+Shopee analytics dashboard) — this time *building on top of* a settled
+chainboard app rather than bootstrapping or correcting one.
+
+### Added
+
+- **USE_CASES.md §10 — Adding a feature: the four-step layer walk.** The
+  day-to-day pattern the earlier entries didn't name: every read-shaped feature
+  is the same walk down the layers — **atom → builder → board method → route** —
+  in that order, every time. Covers the reverse walk for "where does this number
+  come from?", the **service-gate function cap** as the rule that bites a fast
+  contributor (and the alias-not-wrapper fix), and the **honest-empty-state**
+  discipline (an unbacked widget is the visible report of a missing atom — never
+  fabricate the number to fill a layout). Pattern Index updated.
+- Evidence behind the entry: a cold contributor added **four endpoints and five
+  UI screens** in one session; two screens needed zero new backend (the figures
+  already lived in one formula module, §6), and the *only* friction across the
+  whole build was a framework rule firing at import time — the architecture
+  working as designed, not a production bug.
+
+### Doctrine
+
+- §10 is a **template**, consistent with the v0.2.0+ stance: the framework
+  ships no new code; the four-step walk is enforced entirely by rules that
+  already exist (import laws, layer caps, the §6 variable/formula split).
+
+### Compatibility
+
+No breaking changes. No code changes to `module/`. `v0.3.0` consumers upgrade by
+changing the version pin; everything new is documentation/contract.
+
 ## [0.3.0] — 2026-05-21
 
 Doctrine + discoverability release. No code/API changes to the framework core;

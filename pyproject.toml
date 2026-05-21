@@ -1,6 +1,6 @@
 [project]
 name = "chainboard"
-version = "0.3.0"
+version = "0.4.0"
 description = "Import-time architecture enforcement for Python: Chain (workflows) + Board (capabilities) + Atom (leaves), with a scanner that turns boundary violations into ImportErrors. Keeps codebases (and LLM contributions) from drifting."
 readme = "README.md"
 requires-python = ">=3.10"

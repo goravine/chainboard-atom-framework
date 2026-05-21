@@ -513,6 +513,76 @@ questions, one report style.
 
 ---
 
+## 10. Adding a Feature — the four-step layer walk
+
+### Shape of the problem
+
+Patterns 1–9 are mostly about *getting the architecture right* — bootstrapping
+it, correcting drift, codifying bug classes. But the day-to-day question is
+quieter: **a new feature needs a new piece of data on the screen. Where does
+each part go, and how do I not break the layering doing it?**
+
+Without a contract this is where drift starts. A new endpoint "just needs one
+query," so the query lands in the router. The next one lands in a service. A
+third re-derives a number a formula module already owns. Six months later the
+business logic is scattered across three layers and two of them disagree.
+
+### Pattern
+
+Every read-shaped feature is the **same four-step walk down the layers**, and
+it is always the same four steps in the same order:
+
+1. **Atom** — if the feature needs data not yet extracted, add *one* leaf:
+   either a new primitive IO (a query/read) **or**, if the figure is
+   *calculated*, a function in the existing formula module (§6 — a derived
+   number is never a new atom). Do not skip to a service with an inline query.
+2. **Builder** (private service child, `services_<domain>.py`) — assemble the
+   atom outputs into the feature's payload shape. This is where composition
+   lives; it imports atoms, never the reverse.
+3. **Board method** — expose the builder through the capability surface, behind
+   the gate. One thin gated method per capability.
+4. **Route** — the transport wrapper (`api_app/...`) calls the board method and
+   maps errors to status codes. No domain logic here.
+
+The same walk works in reverse for "where is this number coming from?": route →
+board → builder → atom, and the atom is the single definition.
+
+In one real session a cold contributor added **four endpoints and five UI
+screens** this way. Two screens needed *zero* new backend — the figures already
+lived in one formula module, so the builder already returned them. The new fee
+breakdown "just worked" because it was arithmetic over variables that already
+existed (§6 again). Each genuinely-new read was the identical four-step move;
+there was never a question of *where* code went, only *what* it computed.
+
+### What keeps it honest
+
+The layer caps and import laws the scanner already enforces (§5, PROTOCOL.md):
+
+- An atom that tries to import a service or board fails at import.
+- A higher layer reaching past the gate into an atom fails at import.
+- The **service-gate function cap** is the one that bites a fast contributor:
+  add one wrapper `def` too many and the gate refuses to import. The fix is
+  itself doctrine — a pure pass-through read needs no wrapper, so **re-export
+  the builder under the public gate name as an alias** rather than wrapping it
+  in a counted `def`. The cap turns "the gate is bloating" into a hard stop at
+  the moment it happens, not a code-review comment three weeks later.
+
+That last point is the tell that the system is working: across a large feature
+build, the *only* friction was a framework rule firing at import time — not a
+domain bug discovered in production.
+
+### Honest empty states
+
+A feature's design will often ask for data the backend can't yet produce (a
+field not synced, a dimension not mapped). The discipline that pairs with the
+four-step walk: **render the unbacked widget as a graceful empty state, never
+fabricate the number to fill the layout.** The walk makes it obvious where the
+gap is — there is no builder field for it, so there is no atom for it, so the
+data genuinely does not exist yet. The empty state is the honest report of a
+missing atom, and it names the follow-up work precisely.
+
+---
+
 ## Pattern Index
 
 | Pattern                                | Add a scanner rule? | Add an atom? |
@@ -526,6 +596,7 @@ questions, one report style.
 | 7. Single-writer file pipe             | No                  | Yes (a staging/import atom) |
 | 8. Bug class → scanner rule (+ naive datetime) | Yes (the point) | No |
 | 9. Runtime preflight                   | No (it *runs* the scanner) | No (a script) |
+| 10. Adding a feature (four-step walk)  | No (existing rules guard it) | Maybe (a new leaf or formula fn) |
 
 Each pattern that mentions a scanner rule should be added inline next to the
 existing rules in `module/_scanner.py`, not extracted into a separate file.
