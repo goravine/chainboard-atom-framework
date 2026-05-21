@@ -148,10 +148,12 @@ TZ is a single-line edit + a scanner re-run.
 
 ### What this doesn't cover
 
-The scanner catches *render-site* violations. It cannot see naive
-`datetime.now()` flowing through a producer. The double-shift case requires
-the storage-is-UTC discipline — make it a code-review reflex and the
-scanner catches the rest.
+The scanner here catches *render-site* violations. The producer side — a naive
+`datetime.now()` leaking local time into storage — is closed by the
+**naive-datetime scanner rule in §8**, which bans tz-naive datetime
+construction in the application package outside the timezone atom. With both
+rules in place the double-shift class is fully guarded, not left to a
+code-review reflex.
 
 ---
 
@@ -287,6 +289,230 @@ scanner" a visible, reviewable act rather than an accidental one.
 
 ---
 
+## 6. Atom vs Composition — the variable/formula split
+
+### Shape of the problem
+
+A contributor needs a derived figure — a fee total, a profit number, a
+score. The obvious move is to compute it where it's first needed, inline, in
+a service. Three weeks later a second surface needs the same figure and
+computes it again, slightly differently. Both look correct. They disagree by
+a rounding rule, or one gets a bug fix the other misses, and now the same
+"number" means two things depending on which screen you're on.
+
+This is the most common way business logic rots, and nothing in a layered
+architecture stops it on its own — both copies are in the "right" layer.
+
+### Pattern
+
+Separate **variables** from **compositions**, and give compositions exactly
+one home.
+
+- An **atom is a variable or a primitive**: an irreducible value from one
+  source (a raw API field, a config value), or one focused transform (a
+  timezone conversion, a signature). Treat it like a variable.
+- A **composition is a formula over variables** — a fee total, a profit. It is
+  *not* an atom. It lives in a single **formula module** that composes other
+  atoms' outputs, and every consumer imports that module. One definition,
+  imported in N places — never N inline re-derivations.
+
+Litmus: *if the value is calculated from other values, it is a formula, not a
+variable.* `commission_fee` (raw from the API) is a variable. `total_fee =
+commission + shipping + service` is a formula.
+
+### Layout
+
+```
+module/atoms/<source>_read.py   # extracts raw variables from a payload/table
+module/atoms/<domain>_formula.py # the ONLY place derived figures are computed
+module/services_<domain>.py      # orchestrates; calls the formula module,
+                                 # never re-derives the math
+```
+
+The formula module is still an atom by the leaf rule — pure functions, no IO,
+no upward imports — it just happens to compose other atoms' values rather than
+read a source. Each function takes a dict of the day's/row's variables and
+returns one figure.
+
+### Boundary rules
+
+- A derived figure is computed in exactly one function, in the formula module.
+- Two services that both show the figure both import it. If you find the same
+  arithmetic in two services, that is the bug — collapse it.
+- The formula module does no IO. Variables are extracted by a read atom (or the
+  query layer) and handed in. Keeps the formula pure and unit-testable.
+
+### Scanner rule
+
+Optional but recommended once the formula module exists: a rule that flags the
+formula's constituent arithmetic appearing *outside* the formula module (e.g.
+the literal fee-sum pattern in a service). Harder to express than an import
+rule — at minimum, code-review for "is this re-deriving a figure the formula
+module owns?" and pin the figure with a test so a divergent copy fails.
+
+### Why this is the highest-leverage pattern here
+
+Layering tells you *which file* logic goes in. It does not tell you that a
+calculation must have one definition. That gap is where "the dashboard says X,
+the report says Y" bugs live. The variable/formula split closes it.
+
+---
+
+## 7. Single-Writer File Pipe (staged import, never `os.replace`)
+
+### Shape of the problem
+
+A file (a SQLite DB, a cache) is read by many processes and written by one. An
+admin endpoint needs to *replace* the whole file with an uploaded copy. The
+textbook move is atomic-rename: write a temp file, `os.replace` it over the
+live one. It looks correct — `os.replace` is atomic at the filesystem level.
+
+It is a trap. If another process has the file **open** when you replace it,
+that process's handle now points at the old (unlinked) inode. For SQLite the
+`-wal`/`-shm` sidecars desync; the open process writes into a stale
+write-ahead log that no one else sees. Symptom: the writer reports success,
+the file on disk never changes, and live data silently stops updating. (We
+spent a debugging session on "0 new rows since the upload" before finding
+this.)
+
+### Pattern
+
+One file, one writer — enforced by routing every write through a single owner
+process. A bulk replace does NOT swap the file:
+
+1. The admin endpoint (in a *different* process from the writer) **stages** the
+   uploaded bytes to a separate file, e.g. `<name>.upload.staged`. It never
+   opens the live file.
+2. The single writer process, on its normal work cycle, checks
+   `is_staged_upload_present()`. If so it **imports** the staged file's rows
+   into the live file through its own open connection (e.g. `ATTACH` + `INSERT
+   OR REPLACE`), then deletes the staging file.
+3. The live file is only ever written by that one owner, through one
+   connection. Nothing is ever `os.replace`d under a live handle.
+
+### Boundary rules
+
+- Readers open the file read-only and are unaffected (SQLite WAL allows many
+  readers + one writer).
+- The staging step is a plain byte write — the staging process must not open
+  the staged file as a database, only the importing owner does.
+- The import is idempotent (`INSERT OR REPLACE` on the key) so a re-run merges
+  rather than duplicates.
+- If multiple threads inside the one writer process can write, serialize them
+  with a single in-process lock. Cross-process is handled by there being only
+  one writer process at all.
+
+### What this doesn't cover
+
+In-process concurrency between the writer's own threads still needs a lock.
+And a bulk import of a large file blocks the writer's cycle while it runs —
+acceptable for an occasional admin action, not for hot-path writes.
+
+### Doctrine
+
+`os.replace` on a file another process holds open is never safe, however
+atomic the rename. "One writer, everyone else read-only, replace via staged
+import" is the contract.
+
+---
+
+## 8. Bug Class → Scanner Rule (and the naive-datetime rule)
+
+### Shape of the problem
+
+A bug is found, root-caused, and fixed with a one-line patch. The fix is
+correct. Six weeks later the *same class* of bug reappears in a different file,
+because nothing stopped a contributor (or an LLM) from writing the same broken
+shape again. The fix addressed an instance; the class was never closed.
+
+### Pattern
+
+**Every time you fix a bug class, add a scanner rule that forbids the broken
+shape.** The fix removes the instance; the rule removes the class. This is the
+discipline that makes the codebase get *harder* to break over time instead of
+accumulating the same regressions.
+
+Process:
+
+1. Fix the instance.
+2. Name the *shape* of the mistake (not the specific value — the pattern).
+3. Add a scanner rule, inline with the existing rules, that fails the build on
+   that shape. Negative-test it (prove it flags a synthetic bad case and
+   ignores the good one).
+4. The rule's error message names the right thing to do instead.
+
+### Worked example: the naive-datetime rule (closes §2's producer gap)
+
+§2 (timezone discipline) noted the scanner catches *render-site* violations but
+**cannot** see a naive `datetime.now()` flowing through a producer — that was a
+documented hole. Here is the rule that closes it.
+
+The bug class: a tz-naive `datetime(...)` / `datetime.now()` /
+`datetime.fromtimestamp(...)` / `datetime.combine(...)` is interpreted in the
+*host machine's* timezone. A dev box in one TZ and a server in another then
+produce different epochs for the same calendar instant — and if that epoch is a
+storage key, you get duplicate rows that downstream code sums (we shipped
+exactly this: an ad-spend figure double-counted because a WIB laptop and a UTC
+server keyed the same day two ways).
+
+The rule: in the application package, ban tz-naive datetime construction.
+Require a `tz=`/`tzinfo=` keyword on `datetime(...)` and
+`datetime.fromtimestamp(...)`; treat `datetime.utcnow()` as always a violation.
+Exempt the one atom that legitimately defines the timezone (the
+timezone-conversion atom — §2's `datetime_tz`). All day/epoch math routes
+through that atom; everywhere else calling a bare `datetime` constructor fails
+the build.
+
+This is the producer-side guard §2 said required a "code-review reflex." It
+no longer does — the scanner catches it.
+
+### Doctrine
+
+A scanner that only ever had its founding rules is a scanner that is slowly
+falling behind the bugs. The rule set is meant to *grow*, one bug class at a
+time. A new rule is the most durable possible fix.
+
+---
+
+## 9. Runtime Preflight (the scanner's runtime sibling)
+
+### Shape of the problem
+
+The scanner validates the *code* at import time. But a correct codebase still
+fails at runtime if the *environment* is wrong: config file absent, a database
+missing its schema, a seed not applied, a credential blank. These don't surface
+until the first request 500s — often after a fresh deploy, exactly when you
+have least time to debug.
+
+### Pattern
+
+A **preflight** check — a runtime-readiness validator, sibling to the scanner.
+The scanner answers "is the code shaped right?"; preflight answers "is this
+environment ready to serve?". Same `[OK]/[FAIL]/[WARN]` report shape, run on
+demand (before a deploy or a big rework), not on every boot.
+
+It checks, and optionally auto-fixes:
+
+- config present and parseable, required sections present;
+- every datastore exists with its expected schema (with `--fix` to create a
+  missing one);
+- seeds applied; required secrets/credentials present (warn, don't necessarily
+  fail);
+- the code scanner itself passes (preflight subsumes it).
+
+Failure modes: fail loud. A `--strict` flag turns warnings into a nonzero exit
+so CI can gate on it. Critical misses (no config at all) are hard fails;
+auto-fixable ones (missing empty DB) are fixed and reported.
+
+### Why separate from the scanner
+
+The scanner must run on every import — it has to be cheap and environment-free
+(it reads source, not state). Preflight reads *state* (files, DBs, env) and may
+mutate (`--fix`), so it cannot live on the import path. Two tools, two
+questions, one report style.
+
+---
+
 ## Pattern Index
 
 | Pattern                                | Add a scanner rule? | Add an atom? |
@@ -296,6 +522,10 @@ scanner" a visible, reviewable act rather than an accidental one.
 | 3. Deploy from committed state         | No                  | No (deploy script change) |
 | 4. Idempotent side-effect hooks        | No                  | Yes (`idempotent_hook`) |
 | 5. Scanner skip list locked            | Yes (self-rule)     | No |
+| 6. Atom vs composition (variable/formula) | Optional         | Yes (a formula module) |
+| 7. Single-writer file pipe             | No                  | Yes (a staging/import atom) |
+| 8. Bug class → scanner rule (+ naive datetime) | Yes (the point) | No |
+| 9. Runtime preflight                   | No (it *runs* the scanner) | No (a script) |
 
 Each pattern that mentions a scanner rule should be added inline next to the
 existing rules in `module/_scanner.py`, not extracted into a separate file.

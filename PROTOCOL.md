@@ -71,21 +71,40 @@ Replace it with your project's real boards. Boards are the framework's operation
 
 An atom is a low-level leaf function module under `module/atoms/`.
 
-Atoms exist for:
+**An atom is a variable or a primitive operation — never a calculation over
+other variables.** This distinction is load-bearing; it is the single most
+common thing contributors get wrong, so read the next two paragraphs before
+creating one.
 
-- focused IO
-- serialization
-- auth primitives
-- storage primitives
-- database helpers
-- document helpers
-- pure calculations
+- An **atom** produces an irreducible value from one source, or performs one
+  focused IO / transform: read a config, convert a timezone, sign a request,
+  open a DB, extract a raw field. Treat an atom like a *variable*.
+- A **composition** combines atoms into a derived figure. "Total fee = admin +
+  shipping + commission" is a *formula*, not an atom — it is calculated from
+  variables. Calculated figures live in a single **formula module** (itself an
+  atom that only composes other atoms' outputs), which every consumer imports
+  so the calculation has exactly one definition.
+
+Litmus test: *if the value is calculated from other values, it is a formula,
+not an atom.* The raw `commission_fee` a payment API returns is a variable
+(atom). `total_fee = commission + shipping` is a formula (composition module).
+
+Why this matters: business logic scatters when the same calculation is
+re-derived in two services. They drift; one gets a bug fix the other misses.
+The cure is one formula module everyone imports — see the **Atom Creation
+Protocol** below and `docs/USE_CASES.md` §6.
+
+Atoms exist for: focused IO, serialization, auth primitives, storage
+primitives, database helpers, raw-field extraction, single-source formula
+modules, deterministic pure helpers (e.g. timezone conversion).
 
 The seed template ships with one example:
 
 - `example_io.py`
 
-Atoms must stay leaf-like. They should not quietly become service layers.
+Atoms must stay leaf-like. They must not become service layers, and they must
+not become a "utils" junk drawer — a file holding several unrelated helpers is
+not an atom, it is a bag. One atom, one thing.
 
 ### Chain
 
@@ -292,14 +311,32 @@ When modifying a board:
 2. Preserve dependency assertions.
 3. Do not sneak orchestration into routers or atoms just because a board feels inconvenient.
 
-## Atom Protocol
+## Atom Creation Protocol
 
-When adding an atom:
+The checklist for adding an atom. Steps 4–5 are the ones that prevent
+scattered business logic; do not skip them.
 
-1. Confirm the logic is leaf-level.
-2. Confirm it does not belong in `module.services`.
-3. Keep inputs and outputs explicit.
-4. Avoid hidden config lookups when a value can be passed in.
+1. **Name the one thing.** One sentence, no "and". If you need "and", it is two
+   atoms or a composition.
+2. **Confirm it is leaf.** Pure transform or focused IO. No business policy, no
+   orchestration, no chain assembly, no upward imports. If it decides *what* to
+   do rather than *how*, it is a service.
+3. **Confirm it is not a duplicate.** Does an existing atom already own this
+   domain? Extend it. A second time-helper, a second path-resolver, a second
+   formula for the same figure — all are drift waiting to happen.
+4. **Variable or composition?** If the value is *calculated* from other values,
+   it does not get a new atom — it goes in a formula module that composes
+   existing atoms. (See `docs/USE_CASES.md` §6.)
+5. **Single source.** If the atom owns a class of value (paths, time, a
+   formula), it must be the ONLY place that value is produced. Everyone else
+   calls it; no one re-derives.
+6. **The docstring is the spec.** State what it computes, the input shape, the
+   units, and what it deliberately does NOT do.
+7. **Test it directly.** A dedicated `tests/test_<atom>.py`. For a formula
+   module, pin the numbers against a known-correct case.
+8. **Consider a scanner rule.** If the atom exists to prevent a bug class (a
+   tz-naive datetime, a hardcoded path), add a scanner rule forbidding the old
+   pattern — so the discipline is mechanical, not memory. (See `docs/USE_CASES.md` §8.)
 
 When removing an atom:
 
@@ -311,6 +348,17 @@ When modifying an atom:
 1. Keep it dependency-light.
 2. Avoid embedding runtime values.
 3. Avoid turning it into a policy engine.
+
+### Atom anti-patterns
+
+- A "utils" / "helpers" atom — a bag of unrelated things, not one atom.
+- An atom that grew a second responsibility — split it.
+- A calculated figure shipped as an atom — it is a formula; compose it in a
+  formula module.
+- The same variable produced in two places — collapse to one atom; route all
+  callers through it.
+- An atom reaching into a service or board for its inputs — atoms *receive*
+  inputs, they do not fetch orchestrated data.
 
 ## Chain Protocol
 

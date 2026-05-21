@@ -5,6 +5,65 @@ All notable changes to this framework are recorded here. Versions follow
 breaks contract, MINOR adds doctrine or atoms, PATCH fixes scanner /
 example code.
 
+## [0.3.0] — 2026-05-21
+
+Doctrine + discoverability release. No code/API changes to the framework core;
+all additions are contract (PROTOCOL.md), patterns (USE_CASES.md), and README.
+Distilled from a second production deployment (a Shopee analytics dashboard)
+that exercised the framework hard and surfaced where a cold contributor — human
+or LLM — handed only the repo would still go wrong.
+
+### Added
+
+- **PROTOCOL.md — the atom-vs-composition rule.** The `### Atom` section now
+  states the load-bearing distinction up front: *an atom is a variable or a
+  primitive; a calculated figure is a formula, not an atom, and lives in one
+  formula module every consumer imports.* The old "atoms exist for … pure
+  calculations" line (which invited shipping derived figures as atoms, the #1
+  cause of scattered business logic) is corrected.
+- **PROTOCOL.md — Atom Creation Protocol.** Replaces the thin "Atom Protocol"
+  with an 8-step add-an-atom checklist (name the one thing → leaf → not a
+  duplicate → variable-or-composition → single source → docstring-as-spec →
+  test → consider a scanner rule) and an explicit atom anti-patterns list
+  (the "utils" junk drawer; a calculated figure as an atom; the same variable
+  produced twice).
+- **USE_CASES.md §6 — Atom vs Composition (variable/formula split).** The
+  highest-leverage pattern: why layering alone doesn't stop a calculation from
+  having two definitions, and the one-formula-module cure.
+- **USE_CASES.md §7 — Single-Writer File Pipe.** `os.replace` on a file another
+  process holds open is never safe, however atomic the rename (it desyncs the
+  open handle's SQLite `-wal`/`-shm`; writes silently vanish). Replace via a
+  staged file imported by the one writer process instead.
+- **USE_CASES.md §8 — Bug class → scanner rule.** Codifies the discipline that
+  every fixed bug class becomes a scanner rule, and documents the
+  **naive-datetime rule** — which closes the producer-side gap §2 had
+  explicitly left open (a tz-naive `datetime.now()` leaking host-local time
+  into storage). §2's "What this doesn't cover" is updated to point at §8.
+- **USE_CASES.md §9 — Runtime Preflight.** The scanner validates code at import
+  time; preflight validates the *environment* (config, datastores + schema,
+  seeds, credentials) on demand. Same report shape, runs off the import path
+  because it reads/mutates state.
+- **README rewrite for discoverability.** Problem-first headline, an explicit
+  keyword line (architecture enforcement, import-time linter, hexagonal/clean
+  template, LLM-safe codebase, single-source-of-truth), and an LLM-contributions
+  framing — the audience most likely to need this and least likely to find it
+  by the old "framework built on three primitives" opener. File-tour table and
+  scanner-catches list updated for §6–§9 and project-specific bug-class rules.
+
+### Doctrine
+
+- The new patterns are **templates**, consistent with the v0.2.0 stance: the
+  framework still ships only the base scanner rules; projects add the
+  bug-class rules (§8) inline. The scanner remains one immune system, not a
+  plugin host.
+- "Atom = variable, composition = formula" is now first-class contract, not
+  folklore — the distinction that keeps business logic from scattering.
+
+### Compatibility
+
+No breaking changes. No code changes to `module/`. `v0.2.0` consumers upgrade
+by changing the version pin; everything new is documentation/contract.
+
 ## [0.2.0] — 2026-05-20
 
 ### Added

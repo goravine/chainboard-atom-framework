@@ -1,12 +1,28 @@
-# chainboard
+# chainboard — architecture enforcement for Python, at import time
 
-A Python application framework built on three primitives:
+**Keep a Python codebase's architecture from rotting — including when AI/LLM
+agents are writing most of the code.** chainboard is a small application
+framework (hexagonal / clean-architecture lineage) with one unusual property:
+the architecture rules are executable, and **the code refuses to import when a
+boundary is violated.** Not a CI check you can skip, not a linter you can
+silence — an import error at the moment the rule is broken.
 
-- **Chain** — fail-fast multi-step workflows with execution history
-- **Board** — bounded capability surfaces with gate state and dependency boundaries
-- **Atom** — leaf-level IO and primitive operations
+> If you've ever watched "just put it here for now" turn into an unmaintainable
+> tangle — or watched an LLM confidently scatter the same logic across five
+> files — this is the guardrail. The architecture becomes *unmaintainable to
+> violate.*
 
-Plus an **import-time scanner** that enforces the architecture as code is written, not as it's reviewed.
+Built on three primitives + an import-time scanner:
+
+- **Atom** — a leaf: one variable, one primitive IO, or one pure transform. Not a junk drawer.
+- **Chain** — a fail-fast, straight-line multi-step workflow with execution history.
+- **Board** — a bounded capability surface with a gate and explicit dependencies.
+- **Scanner** — runs on `import`; enforces layer boundaries, the no-hardcoded-config rule, chain shape, and project-specific bug-class rules. A violation is an `ImportError`.
+
+**Keywords:** Python architecture enforcement · import-time architecture linter
+· prevent architectural drift · hexagonal / ports-and-adapters / clean
+architecture template · dependency boundary enforcement · LLM-safe / AI-agent-safe
+codebase · single-source-of-truth business logic · bug-class-to-scanner-rule.
 
 ---
 
@@ -16,9 +32,19 @@ Most application frameworks decay because:
 
 - code drifts into the wrong layer ("just put it here for now")
 - runtime values leak into source ("just hardcode the URL until we deploy")
+- the same calculation gets re-derived in two places and they silently diverge
 - abstractions decorate without enforcing ("the linter doesn't catch this")
 
-This framework's bet: **the architecture lives in `PROTOCOL.md`, and the scanner refuses to import the code when the architecture is violated.** No CI, no review queue, no "fix it later" — the violation is the import error.
+And LLM-assisted contributions make all four worse, faster: an agent will
+cheerfully put logic in the wrong layer, hardcode a URL, or duplicate a formula
+— because each looks locally reasonable. A style linter won't stop it; a human
+reviewer often won't either.
+
+chainboard's bet: **the architecture lives in `PROTOCOL.md`, and the scanner
+refuses to import the code when the architecture is violated.** No CI, no review
+queue, no "fix it later" — the violation is the import error. Every time a bug
+*class* is found, it becomes a new scanner rule, so the codebase gets *harder*
+to break over time instead of accumulating the same regressions.
 
 ---
 
@@ -97,6 +123,10 @@ see "What this framework is NOT" below.
 | `module/atoms/example_io.py` | Seed atom (replace with real IO leaves) |
 | `module/atoms/datetime_tz.py` | UTC ↔ local-TZ display helpers ([use case](docs/USE_CASES.md#2-user-facing-timezone-discipline)) |
 | `module/atoms/idempotent_hook.py` | Fire-once external-side-effect wrapper ([use case](docs/USE_CASES.md#4-idempotent-external-side-effect-hooks)) |
+| `docs/USE_CASES.md` §6 | **Atom vs composition** — variable/formula split (the highest-leverage pattern; stops scattered business logic) |
+| `docs/USE_CASES.md` §7 | Single-writer file pipe — staged import, never `os.replace` under a live handle |
+| `docs/USE_CASES.md` §8 | Bug class → scanner rule discipline + the naive-datetime rule |
+| `docs/USE_CASES.md` §9 | Runtime preflight — the scanner's environment-readiness sibling |
 | `sdk/exceptions.py` | Framework exception hierarchy |
 | `api_app/main.py` | FastAPI app boot |
 | `api_app/routers/example.py` | Example router showing layer flow |
@@ -135,6 +165,12 @@ see "What this framework is NOT" below.
 - Service gate growth past 350 lines / 20 functions
 - Board file growth past 180 lines / 16 public methods
 - Board class name not matching `<FileStem>Board` (unless explicitly excepted)
+
+The base rules above ship with the template. **Project-specific bug-class
+rules** (e.g. no hardcoded DB paths, no tz-naive `datetime`, render-site
+timezone discipline) are added inline as your project hits the bug — see
+[docs/USE_CASES.md §8](docs/USE_CASES.md). The scanner is meant to grow one
+rule per bug class; that growth is the point, not scope creep.
 
 ---
 
