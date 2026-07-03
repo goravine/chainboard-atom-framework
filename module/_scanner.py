@@ -29,6 +29,26 @@ Rules enforced:
     - Board file naming: `<noun>.py` defines a single `<Noun>Board` class
       (CamelCase of the stem). Overrides are explicit, not silent.
 
+  Console safety (across api_app, module, sdk, tools — scanner included):
+    - String literals passed to print() must encode to cp1252. A box-drawing
+      char or emoji in a diagnostic message CRASHES the scanner on a Windows
+      console (UnicodeEncodeError) instead of reporting the violation — the
+      immune system must not be killable by its own output.
+
+  Rule 0 — the scanner scans itself (no vacuous rules):
+    - Every scan target the scanner is configured to check must exist on
+      disk, or be declared absent in _DECLARED_ABSENT with a justification.
+      "Cannot check" is a violation, not a skip — a rule whose target moved
+      passes vacuously forever, and a green scanner nobody doubts is where
+      architecture rot hides.
+    - Skip-list entries (_HARD_CODED_SCAN_SKIP_FILES) must point at files
+      that exist. A stale skip silently exempts any future file that
+      reappears under that name.
+    - Absence declarations must stay true: a _DECLARED_ABSENT path that
+      exists on disk is a stale declaration and fails the scan.
+    - An active code dir that exists but yields zero scanned files is a
+      vacuity violation — the rule ran against nothing.
+
 If your project needs to relax any rule, edit this file with intent — never
 add silent escape hatches. The skip list is _HARD_CODED_SCAN_SKIP_FILES; every
 entry should be justified by a comment.
@@ -116,6 +136,18 @@ _MAX_BOARD_PUBLIC_METHODS = 16
 # every override is a deliberate readability tradeoff.
 _BOARD_CLASS_NAME_OVERRIDES = {
     # "tooling": "ToolBoard",   # example: when noun != stem
+}
+
+# Rule 0: paths the scanner is configured to check that are LEGITIMATELY
+# absent in this project. Every entry needs a justification comment — an
+# undeclared missing target is a violation (the rule would pass vacuously),
+# and a declared path that EXISTS is a stale declaration (also a violation).
+# Keys are repo-relative posix paths (dirs or files).
+_DECLARED_ABSENT = {
+    # The seed template ships no tools/ dir. When your project adds one,
+    # the stale-declaration check forces you to delete this line — and the
+    # hardcoding/import-law rules start running against it that instant.
+    "tools": "seed template ships no dev tooling; populate per project",
 }
 
 
@@ -307,6 +339,50 @@ def _scan_file_for_configish_defaults(filepath):
                         f"Config-like arg default at {filepath}:{default_node.lineno} — "
                         f"{arg_node.arg}={value!r}"
                     )
+    return errors
+
+
+def _iter_print_string_parts(call_node):
+    for arg in call_node.args:
+        if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
+            yield arg.value, arg.lineno
+        elif isinstance(arg, ast.JoinedStr):
+            for part in arg.values:
+                if isinstance(part, ast.Constant) and isinstance(part.value, str):
+                    yield part.value, arg.lineno
+
+
+def _scan_file_for_console_safety(filepath):
+    """String literals printed to the console must survive cp1252.
+
+    The scanner reports violations by printing; if a diagnostic string
+    contains a char outside cp1252 (box-drawing, arrows, emoji), a Windows
+    console kills the process with UnicodeEncodeError before the report
+    lands. This rule applies to ALL active code including the scanner —
+    the immune system must not be killable by its own output.
+    """
+    with open(filepath, "r", encoding="utf-8") as f:
+        source = f.read()
+    try:
+        tree = ast.parse(source)
+    except SyntaxError as exc:
+        return [f"Syntax error in {filepath}: {exc}"]
+
+    errors = []
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+                and node.func.id == "print"):
+            continue
+        for text, lineno in _iter_print_string_parts(node):
+            try:
+                text.encode("cp1252")
+            except UnicodeEncodeError:
+                preview = text if len(text) <= 60 else f"{text[:57]}..."
+                errors.append(
+                    f"Console-safety violation at {filepath}:{lineno} — "
+                    f"print() literal {preview!r} does not survive cp1252; "
+                    f"use ASCII markers ([OK]/[FAIL]) in console output"
+                )
     return errors
 
 
@@ -529,24 +605,98 @@ def _scan_board_surface_shape(repo_root):
     return errors
 
 
+def _scan_scanner_integrity(repo_root):
+    """Rule 0: the scanner scans itself — no rule may be vacuous.
+
+    A rule whose target is missing does not fail; it silently checks
+    nothing, forever, behind a green scanner everyone trusts. This rule
+    makes "cannot check" a violation: every configured scan target must
+    exist or be declared absent with a justification, skip-list entries
+    must be live, and absence declarations must stay true.
+    """
+    errors = []
+
+    # Configured scan targets: active dirs + the service gate file.
+    expected_targets = list(_ACTIVE_CODE_DIRS) + [_SERVICE_GATE_FILE]
+    for target in expected_targets:
+        path = repo_root / target
+        if path.exists():
+            continue
+        if target in _DECLARED_ABSENT:
+            continue
+        errors.append(
+            f"Scanner integrity violation — configured scan target "
+            f"'{target}' is missing and not declared in _DECLARED_ABSENT; "
+            f"its rules would pass vacuously"
+        )
+
+    # Absence declarations must stay true.
+    for target, justification in _DECLARED_ABSENT.items():
+        if (repo_root / target).exists():
+            errors.append(
+                f"Scanner integrity violation — '{target}' is declared "
+                f"absent ({justification!r}) but exists on disk; remove the "
+                f"stale declaration so its rules run"
+            )
+
+    # Skip-list entries must point at live files.
+    for skip in _HARD_CODED_SCAN_SKIP_FILES:
+        if not (repo_root / skip).exists():
+            errors.append(
+                f"Scanner integrity violation — skip-list entry '{skip}' "
+                f"does not exist; a stale skip silently exempts any future "
+                f"file that reappears under that name"
+            )
+
+    return errors
+
+
 def validate_hardcoding_policies():
     repo_root = Path(__file__).resolve().parent.parent
     fail_mark = "[FAIL]"
     ok_mark = "[OK]"
+    print("[SCANNER] Validating scanner integrity (rule 0)...")
+
+    integrity_errors = _scan_scanner_integrity(repo_root)
+    if integrity_errors:
+        for err in integrity_errors:
+            print(f"  {fail_mark} {err}")
+        raise ScannerError(
+            f"Scanner integrity validation failed ({len(integrity_errors)} error(s))"
+        )
+    print(f"{ok_mark} scanner integrity validated | 0 errors")
+
     print("[SCANNER] Validating hardcoding policies...")
 
     errors = []
+    scanned_counts = {}
     for relative_root in _ACTIVE_CODE_DIRS:
         root = repo_root / relative_root
         if not root.exists():
+            # Rule 0 already verified this absence is declared.
             continue
+        scanned_counts[relative_root] = 0
         for py_file in root.rglob("*.py"):
             relative_path = py_file.relative_to(repo_root).as_posix()
+            # Console safety applies to every file — including the skip-listed
+            # scanner itself; that is where the crash bites hardest.
+            errors.extend(_scan_file_for_console_safety(str(py_file)))
             if relative_path in _HARD_CODED_SCAN_SKIP_FILES:
                 continue
+            scanned_counts[relative_root] += 1
             errors.extend(_scan_file_for_hardcoded_runtime_literals(str(py_file)))
             errors.extend(_scan_file_for_configish_defaults(str(py_file)))
             errors.extend(_scan_file_for_import_law(str(py_file), repo_root))
+
+    # Vacuity guard: an existing active dir that yielded zero scanned files
+    # means the rules ran against nothing — that is not a pass.
+    for relative_root, count in scanned_counts.items():
+        if count == 0:
+            errors.append(
+                f"Scanner vacuity violation — active dir '{relative_root}' "
+                f"exists but zero python files were scanned; if it is "
+                f"intentionally empty, declare it in _DECLARED_ABSENT"
+            )
 
     errors.extend(_scan_service_gate_shape(repo_root))
     errors.extend(_scan_module_naming_protocol(repo_root))
@@ -559,7 +709,11 @@ def validate_hardcoding_policies():
             f"Hardcoding policy validation failed ({len(errors)} error(s))"
         )
 
-    print(f"{ok_mark} hardcoding policies validated | 0 errors")
+    total_scanned = sum(scanned_counts.values())
+    print(
+        f"{ok_mark} hardcoding policies validated | 0 errors | "
+        f"{total_scanned} file(s) across {len(scanned_counts)} dir(s)"
+    )
 
 
 def validate_chains():

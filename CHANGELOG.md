@@ -5,6 +5,41 @@ All notable changes to this framework are recorded here. Versions follow
 breaks contract, MINOR adds doctrine or atoms, PATCH fixes scanner /
 example code.
 
+## [0.5.0] — 2026-07-03
+
+The scanner-scans-itself release. Two new rule families born from a real
+field failure (a sibling project's scanner rule found silently dead for the
+project's entire life), plus the framework's principle written down.
+
+### Added
+- **Rule 0 — scanner integrity** (`_scan_scanner_integrity`): every
+  configured scan target must exist or be declared in `_DECLARED_ABSENT`
+  with a justification; stale absence declarations fail; stale skip-list
+  entries fail; an active dir yielding zero scanned files is a vacuity
+  violation. "Cannot check" is a violation, not a skip. Runs before every
+  other rule.
+- **Console-safety rule** (`_scan_file_for_console_safety`): string
+  literals in `print()` calls must encode to cp1252 — a box-drawing char or
+  emoji in a diagnostic crashes the scanner on a Windows console instead of
+  reporting the violation. Applies to all active code including the
+  skip-listed scanner itself.
+- Coverage attestation: the scanner's pass line now reports
+  `N file(s) across M dir(s)` so a vacuous pass is visible at a glance.
+- `docs/PRINCIPLE.md`: the framework's principle (move correctness from
+  discipline into mechanism, at the moment of authorship), the four
+  load-bearing choices, Rule 0's doctrine, and why the framework works
+  best with an LLM as the driver.
+- 6 new scanner tests (12 total).
+
+### Changed
+- PROTOCOL.md Scanner Protocol: Rule 0 section + the rule-author
+  corollary (never degrade to warn-and-skip; the missing precondition IS
+  the finding) + console-safety duty.
+- What Must Stay True: added "no scanner rule may pass vacuously".
+- Seed template: removed the empty untracked `tools/` dir; declared it in
+  `_DECLARED_ABSENT` (adding tools later forces the declaration out, which
+  turns its rules on — the mechanism working as designed).
+
 ## [0.4.0] — 2026-05-21
 
 Doctrine release. No code/API changes to the framework core; one new

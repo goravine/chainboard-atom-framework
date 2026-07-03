@@ -67,6 +67,8 @@ module.services  (stable service gate; private children in module/services_*.py)
 ```
 
 Read [PROTOCOL.md](PROTOCOL.md) once. It's the canonical contract.
+For the philosophy — the principle behind the framework and why it works
+best with an LLM as the driver — read [docs/PRINCIPLE.md](docs/PRINCIPLE.md).
 
 ---
 

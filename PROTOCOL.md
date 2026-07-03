@@ -421,12 +421,43 @@ Current duties:
 - reject direct board-to-atom shortcuts outside the service layer
 - reject board/service file naming drift inside `module/`
 - reject board surface growth that starts turning one board into a god-surface
+- reject non-cp1252 string literals in `print()` calls (console safety — a
+  box-drawing char or emoji in a diagnostic crashes the scanner on a Windows
+  console instead of reporting the violation)
+
+### Rule 0 — the scanner scans itself
+
+The scanner is load-bearing infrastructure with nothing above it, so it must
+be its own first target. The failure mode Rule 0 exists for: **a rule whose
+target is missing does not fail — it silently checks nothing, forever, behind
+a green scanner everyone trusts.** (Witnessed in the field 2026-07-03: a
+sibling project's channel-coverage rule had been dead its entire life because
+the file it checked had moved one directory down. Every scan "passed.")
+
+Rule 0's clauses, all enforced at import time before any other rule runs:
+
+- every configured scan target (active dirs, the service gate file) must
+  exist on disk, or be declared in `_DECLARED_ABSENT` with a justification —
+  **"cannot check" is a violation, not a skip**
+- a `_DECLARED_ABSENT` path that exists on disk is a stale declaration and
+  fails the scan (absence declarations must stay true both ways)
+- every `_HARD_CODED_SCAN_SKIP_FILES` entry must point at a live file — a
+  stale skip silently exempts any future file reappearing under that name
+- an active dir that exists but yields zero scanned files is a vacuity
+  violation — a rule that ran against nothing did not pass
+
+Corollary for rule authors: **never write a rule that degrades to
+warn-and-skip when its precondition is missing.** Warn-and-skip is where
+discipline goes to die; the precondition being missing IS the finding.
 
 When extending the scanner:
 
 - optimize for long-term correctness
 - avoid noisy rules that punish normal refactors
 - prefer catching environment coupling over style trivia
+- give every rule a Rule-0-compatible shape: it must be able to say "I
+  checked N things" — a rule that cannot count its coverage cannot prove
+  it is alive
 
 Skip-file additions to `_HARD_CODED_SCAN_SKIP_FILES` must include a comment justifying the exemption.
 
@@ -471,6 +502,7 @@ These are non-negotiable framework truths unless the protocol is deliberately re
 - tools remain thin execution surfaces
 - chain workflows stay explicit and scanner-friendly
 - `_cfg.json` remains the main framework config contract
+- no scanner rule may pass vacuously — "cannot check" is a violation (Rule 0)
 
 ## Anti-Patterns
 
