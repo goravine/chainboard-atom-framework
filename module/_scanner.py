@@ -190,16 +190,25 @@ def _scan_file(filepath):
         return [], [f"Syntax error in {filepath}: {e}"]
 
     chains = []
+    parent_map = None
     for node in ast.walk(tree):
         if isinstance(node, (ast.Assign, ast.Return)):
             if isinstance(node.value, ast.Call):
                 calls = _extract_chain_calls(node.value)
                 if calls and calls[0][0] == "of":
+                    if parent_map is None:
+                        # Whole-FILE map: the straight-line walk must be able to
+                        # leave the chain expression and reach the control flow
+                        # that encloses it. A map built over the chain's own
+                        # subtree cannot contain those ancestors, so the walk
+                        # dies at the root and the rule never fires.
+                        parent_map = _build_parent_map(tree)
                     chains.append({
                         "file": filepath,
                         "line": node.lineno,
                         "calls": calls,
                         "node": node.value,
+                        "parent_map": parent_map,
                     })
 
     return chains, []
@@ -239,11 +248,7 @@ def _validate_chain(chain):
                 else:
                     step_names[step_name] = call_node.lineno
 
-    parent_map = {
-        child: parent
-        for parent in ast.walk(chain["node"])
-        for child in ast.iter_child_nodes(parent)
-    }
+    parent_map = chain["parent_map"]
 
     node = chain["node"]
     while node:
